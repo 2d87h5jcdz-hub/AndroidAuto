@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.view.Surface
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewGroup
@@ -41,6 +42,9 @@ class SurfaceRenderer(
     private val main = Handler(Looper.getMainLooper())
 
     private var virtualDisplay: VirtualDisplay? = null
+
+    /** Surface atual recebida do host. A documentação exige chamar release() em cada uma. */
+    private var surface: Surface? = null
     private var presentation: Presentation? = null
     private var webView: WebView? = null
     private var pageReady = false
@@ -58,7 +62,14 @@ class SurfaceRenderer(
     var lastError: Int? = null
         private set
 
-    private val queueListener = VideoQueue.Listener { main.post { syncWithQueue() } }
+    /** Depois de destroy() nada mais pode mexer na fila nem na tela. */
+    private var destroyed = false
+
+    /** Só para testes: o WebView montado na Surface atual. */
+    internal val currentWebView: WebView?
+        get() = webView
+
+    private val queueListener = VideoQueue.Listener { main.post { if (!destroyed) syncWithQueue() } }
 
     init {
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(this)
@@ -68,22 +79,44 @@ class SurfaceRenderer(
     // ---------------------------------------------------------------- SurfaceCallback
 
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
-        val surface = surfaceContainer.surface
-        if (surface == null) {
+        val newSurface = surfaceContainer.surface
+        if (destroyed) {
+            newSurface?.release()
+            return
+        }
+        if (newSurface == null) {
             Log.w(TAG, "Surface nula, ignorando")
             return
         }
+        // O host pode chamar de novo só porque o tamanho/DPI mudou. Nesse caso troca a Surface
+        // do display existente em vez de recriar o WebView (o vídeo não reinicia).
+        val existing = virtualDisplay
+        if (existing != null && webView != null) {
+            try {
+                existing.surface = newSurface
+                existing.resize(surfaceContainer.width, surfaceContainer.height, surfaceContainer.dpi)
+                if (surface !== newSurface) releaseSurface()
+                surface = newSurface
+                Log.i(TAG, "Surface trocada ${surfaceContainer.width}x${surfaceContainer.height}")
+                return
+            } catch (t: Throwable) {
+                Log.w(TAG, "Não deu para reaproveitar o display, recriando", t)
+            }
+        }
         releaseDisplay()
+        surface = newSurface
         try {
             val dm = carContext.getSystemService(DisplayManager::class.java)
-            // flags = 0 -> display PRIVADO, só deste app. Não precisa de permissão especial.
+            // Sem VIRTUAL_DISPLAY_FLAG_PUBLIC o display é PRIVADO, só deste app, e não precisa de
+            // permissão especial. OWN_CONTENT_ONLY é o mesmo flag do exemplo oficial do
+            // Navigation SDK para Android Auto (nunca espelha outra tela).
             val vd = dm.createVirtualDisplay(
                 "YtCarDisplay",
                 surfaceContainer.width,
                 surfaceContainer.height,
                 surfaceContainer.dpi,
-                surface,
-                0,
+                newSurface,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
             )
             virtualDisplay = vd
 
@@ -137,6 +170,7 @@ class SurfaceRenderer(
 
     /** Libera tudo. Chamado quando a tela do carro é destruída. */
     fun destroy() {
+        destroyed = true
         queue.removeListener(queueListener)
         releaseDisplay(notify = false)
         runCatching { carContext.getCarService(AppManager::class.java).setSurfaceCallback(null) }
@@ -147,6 +181,7 @@ class SurfaceRenderer(
 
     override fun onPlayerReady() {
         main.post {
+            if (destroyed) return@post
             pageReady = true
             syncWithQueue(force = true)
         }
@@ -154,6 +189,7 @@ class SurfaceRenderer(
 
     override fun onPlayerState(state: Int) {
         main.post {
+            if (destroyed) return@post
             val playing = state == PlayerBridge.STATE_PLAYING
             if (playing) lastError = null
             if (playing != isPlaying) {
@@ -175,12 +211,13 @@ class SurfaceRenderer(
     }
 
     override fun onVideoData(id: String, title: String) {
-        if (YouTubeIds.isValidId(id)) queue.updateTitle(id, title)
+        if (!destroyed && YouTubeIds.isValidId(id)) queue.updateTitle(id, title)
     }
 
     override fun onPlayerError(code: Int) {
         Log.w(TAG, "Erro do player do YouTube: $code")
         main.post {
+            if (destroyed) return@post
             lastError = code
             onPlaybackChanged()
         }
@@ -195,6 +232,10 @@ class SurfaceRenderer(
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
+            // A página vem dos assets via loadDataWithBaseURL; não precisa ler arquivos locais
+            // (o padrão era true antes do Android 11).
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
             addJavascriptInterface(PlayerBridge(this@SurfaceRenderer), PlayerBridge.NAME)
             webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
@@ -240,16 +281,25 @@ class SurfaceRenderer(
             isPlaying = false
             if (notify) onPlaybackChanged()
         }
-        webView?.let { wv ->
-            wv.stopLoading()
-            wv.removeJavascriptInterface(PlayerBridge.NAME)
-            wv.destroy()
-        }
+        val wv = webView
         webView = null
+        wv?.stopLoading()
+        // WebView.destroy() deve ser chamado depois de tirar o WebView da hierarquia de views:
+        // por isso a Presentation é fechada antes.
         presentation?.let { runCatching { it.dismiss() } }
         presentation = null
+        wv?.let {
+            it.removeJavascriptInterface(PlayerBridge.NAME)
+            it.destroy()
+        }
         virtualDisplay?.release()
         virtualDisplay = null
+        releaseSurface()
+    }
+
+    private fun releaseSurface() {
+        surface?.let { runCatching { it.release() } }
+        surface = null
     }
 
     companion object {
