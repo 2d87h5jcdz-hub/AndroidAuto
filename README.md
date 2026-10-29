@@ -116,9 +116,24 @@ Android Auto. A internet vem do próprio celular.
 - **Atualizações do Android Auto** podem mudar o comportamento da Surface ou bloquear o truque.
 - **Alguns vídeos não tocam** fora do YouTube (o dono desativou embeds, ou há restrição de
   idade/região). O player mostra o código de erro (101/150/152/153).
-- O YouTube passou a exigir um **Referer HTTPS** em embeds. O app carrega a página com origem
-  `https://dev.androidauto.ytcar/`, como a documentação sugere para WebView. Se aparecer o
-  erro **152/153**, é esse ponto a investigar.
+- **Identidade do app no embed (erros 152/153).** Desde julho/2025 o player embutido
+  retorna o erro **153** quando a requisição não traz o `HTTP Referer` (ou identificação
+  equivalente do cliente). A doc
+  [Required Minimum Functionality](https://developers.google.com/youtube/terms/required-minimum-functionality)
+  diz que, em app com HTML local, o `baseUrl` do `loadDataWithBaseURL` define o Referer, que ele
+  deve ser `https://` + o **ID do app** registrado no sistema (para app fora de loja, o ID com
+  que foi instalado) e que a `Referrer-Policy` não pode suprimi-lo (recomendado
+  `strict-origin-when-cross-origin`). O app faz exatamente isso: base
+  `https://dev.androidauto.ytcar/` e `<meta name="referrer">` no `player.html`. A mesma doc
+  avisa que clientes com muito volume podem precisar de credenciais extras e que
+  descumprir as regras pode reduzir a funcionalidade do player: isso só dá para confirmar
+  no aparelho. Se aparecer **152/153**, comece por aqui (logcat `YtCarRenderer`).
+- **Toque na tela do vídeo** depende da central: `SurfaceCallback.onClick` é Car API 5+ e,
+  pela documentação, "pode não ser chamado em alguns carros". Os botões da barra sempre
+  funcionam.
+- A ponte JavaScript (`AndroidBridge`) é injetada pelo WebView em todos os frames, inclusive
+  no iframe do YouTube. Ela só recebe estado/tempo/título do player (o ID é validado e o
+  título só vira texto), então o risco é baixo, mas é bom saber.
 - Ao abrir **Buscar** ou **Fila**, o Android Auto pode destruir a Surface. O vídeo para e
   volta do mesmo ponto quando você retorna ao player.
 - A fila fica só em memória: some se o processo do app for encerrado.
@@ -131,4 +146,12 @@ Android Auto. A internet vem do próprio celular.
 gradlew.bat testDebugUnitTest
 ```
 
-Cobrem a extração de IDs, a fila e o parser da busca.
+- **JVM puros:** extração de IDs, fila (inclusive concorrência) e parser da busca.
+- **Robolectric + `androidx.car.app:app-testing`:** monta `PlayerScreen`, `QueueScreen` e
+  `SearchScreen` com `TestCarContext` e confere os templates (4 ações do player, linhas da
+  fila, busca com link indo para a fila, erros da busca) e o "Compartilhar → YT Car" do
+  `MainActivity`. Rodam com SDK 34 no Robolectric (o SDK 35 dele pede Java 21).
+- O que **não** dá para testar fora do aparelho: VirtualDisplay/Presentation de verdade e o
+  player do YouTube tocando. Isso exige celular + DHU ou o carro.
+
+O CI mostra a contagem de testes como anotação do job.

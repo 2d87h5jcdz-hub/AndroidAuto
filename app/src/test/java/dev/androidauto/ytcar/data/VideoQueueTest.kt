@@ -67,4 +67,31 @@ class VideoQueueTest {
         assertNull(q.current())
         assertEquals(-1, q.currentIndex())
     }
+
+    @Test fun concurrentAddsKeepQueueConsistent() {
+        val q = VideoQueue()
+        val notifications = java.util.concurrent.atomic.AtomicInteger()
+        q.addListener { notifications.incrementAndGet(); q.snapshot() } // listener pode ler a fila
+        val threads = (0 until 8).map { t ->
+            Thread { repeat(50) { i -> q.add(v(t * 50 + i)); q.next() } }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        val items = q.snapshot()
+        assertEquals(400, items.size)
+        assertEquals(400, items.map { it.id }.toSet().size)
+        assertEquals(true, q.currentIndex() in items.indices)
+        assertEquals(true, notifications.get() >= 400)
+    }
+
+    @Test fun removedListenerIsNotCalled() {
+        val q = VideoQueue()
+        var calls = 0
+        val l = VideoQueue.Listener { calls++ }
+        q.addListener(l)
+        q.add(v(1))
+        q.removeListener(l)
+        q.add(v(2))
+        assertEquals(1, calls)
+    }
 }
