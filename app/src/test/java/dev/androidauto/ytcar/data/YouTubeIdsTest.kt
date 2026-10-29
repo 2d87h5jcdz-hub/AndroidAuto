@@ -43,4 +43,39 @@ class YouTubeIdsTest {
 
     @Test fun rejectsIdLongerThanEleven() =
         assertNull(YouTubeIds.extract("https://youtu.be/${id}X"))
+
+    @Test fun rejectsLookalikeDomains() {
+        assertNull(YouTubeIds.extract("https://notyoutube.com/watch?v=$id"))
+        assertNull(YouTubeIds.extract("https://fakeyoutu.be/$id"))
+        assertNull(YouTubeIds.extract("https://my-youtube.com/embed/$id"))
+    }
+
+    @Test fun acceptsSubdomainsAndCapitalizedHost() {
+        assertEquals(id, YouTubeIds.extract("https://music.youtube.com/watch?v=$id&list=RD"))
+        assertEquals(id, YouTubeIds.extract("Youtu.be/$id"))
+        assertEquals(id, YouTubeIds.extract("HTTPS://WWW.YOUTUBE.COM/watch?v=$id"))
+    }
+
+    @Test fun keepsIdCase() =
+        assertEquals("AbCdEfGhIjK", YouTubeIds.extract("https://youtu.be/AbCdEfGhIjK"))
+
+    @Test fun watchParamMustBeExactlyV() {
+        assertNull(YouTubeIds.extract("https://www.youtube.com/watch?vv=$id"))
+        assertNull(YouTubeIds.extract("https://www.youtube.com/watch?list=x&xv=$id"))
+    }
+
+    @Test fun firstLinkWinsInSharedText() =
+        assertEquals(id, YouTubeIds.extract("a https://youtu.be/$id b https://youtu.be/AAAAAAAAAAA"))
+
+    @Test fun extractFromLinkIgnoresBareWords() {
+        assertNull(YouTubeIds.extractFromLink("programming"))
+        assertNull(YouTubeIds.extractFromLink(id))
+        assertEquals(id, YouTubeIds.extractFromLink("https://youtu.be/$id"))
+    }
+
+    @Test fun isValidId() {
+        assertEquals(true, YouTubeIds.isValidId(id))
+        assertEquals(false, YouTubeIds.isValidId("$id "))
+        assertEquals(false, YouTubeIds.isValidId("dQw4w9WgXc!"))
+    }
 }
