@@ -23,15 +23,31 @@ jobs:
       - name: Testes, lint e APK
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
 
+      - name: Resumo dos testes
+        if: always()
+        run: |
+          # Mostra a contagem de testes como anotação do job (visível pela API sem baixar artefatos).
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          total = fail = skip = 0
+          for f in glob.glob("app/build/test-results/testDebugUnitTest/*.xml"):
+              r = ET.parse(f).getroot()
+              t, fl, e, s = (int(r.get(k, 0)) for k in ("tests", "failures", "errors", "skipped"))
+              total += t; fail += fl + e; skip += s
+              print(f"{r.get('name')}: {t} testes, {fl + e} falhas, {s} pulados")
+          level = "error" if fail else "notice"
+          print(f"::{level}::Testes JVM: {total} executados, {fail} falhas, {skip} pulados")
+          PY
+
       - name: Publicar APK
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ytcar-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
       - name: Publicar relatórios
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: relatorios
           path: |
