@@ -18,7 +18,7 @@ class YouTubeSearch(private val apiKey: String) {
         val key = URLEncoder.encode(apiKey, "UTF-8")
         val url = URL(
             "https://www.googleapis.com/youtube/v3/search" +
-                "?part=snippet&type=video&videoEmbeddable=true" +
+                "?part=snippet&type=video&videoEmbeddable=true&videoSyndicated=true" +
                 "&maxResults=$maxResults&q=$q&key=$key",
         )
         val conn = url.openConnection() as HttpURLConnection
