@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #player { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #msg {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center; text-align: center;
+    padding: 0 10%; color: #ddd; font: 500 22px/1.4 sans-serif;
+  }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<div id="msg"></div>
+<script>
+  // Ponte com o Kotlin (PlayerBridge). Se não existir (ex.: abrindo no navegador), vira no-op.
+  var bridge = window.AndroidBridge || {
+    onReady: function () {}, onState: function () {}, onTime: function () {},
+    onVideoData: function () {}, onError: function () {}
+  };
+
+  var player = null;
+  var ready = false;
+  var pending = null;
+  var timer = null;
+
+  function showMessage(text) {
+    var el = document.getElementById('msg');
+    el.textContent = text || '';
+    el.style.display = text ? 'flex' : 'none';
+  }
+
+  // ----- Funções chamadas pelo Kotlin -----
+  function ytLoad(id, start) {
+    showMessage('');
+    if (!ready) { pending = { id: id, start: start || 0 }; return; }
+    player.loadVideoById({ videoId: id, startSeconds: start || 0 });
+  }
+  function ytToggle() {
+    if (!ready) return;
+    if (player.getPlayerState() === YT.PlayerState.PLAYING) player.pauseVideo();
+    else player.playVideo();
+  }
+  function ytSeekBy(seconds) {
+    if (!ready) return;
+    player.seekTo(Math.max(0, player.getCurrentTime() + seconds), true);
+  }
+  function ytMessage(text) {
+    if (ready) player.stopVideo();
+    showMessage(text);
+  }
+
+  // ----- YouTube IFrame API -----
+  function onYouTubeIframeAPIReady() {
+    player = new YT.Player('player', {
+      width: '100%',
+      height: '100%',
+      playerVars: {
+        playsinline: 1,
+        autoplay: 1,
+        controls: 1,
+        rel: 0,
+        fs: 0,
+        origin: window.location.origin
+      },
+      events: {
+        onReady: function () {
+          ready = true;
+          if (pending) { ytLoad(pending.id, pending.start); pending = null; }
+          bridge.onReady();
+        },
+        onStateChange: function (e) {
+          bridge.onState(e.data);
+          if (e.data === YT.PlayerState.PLAYING) {
+            var d = player.getVideoData ? player.getVideoData() : null;
+            if (d) bridge.onVideoData(d.video_id || '', d.title || '');
+            if (!timer) timer = setInterval(function () {
+              bridge.onTime(player.getCurrentTime() || 0);
+            }, 1000);
+          } else if (timer) {
+            clearInterval(timer);
+            timer = null;
+          }
+        },
+        onError: function (e) {
+          bridge.onError(e.data);
+          showMessage('Não foi possível tocar este vídeo (erro ' + e.data + '). ' +
+                      'Alguns vídeos não permitem reprodução fora do YouTube.');
+        }
+      }
+    });
+  }
+
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  tag.onerror = function () { showMessage('Sem internet: não consegui carregar o player do YouTube.'); };
+  document.head.appendChild(tag);
+</script>
+</body>
+</html>
