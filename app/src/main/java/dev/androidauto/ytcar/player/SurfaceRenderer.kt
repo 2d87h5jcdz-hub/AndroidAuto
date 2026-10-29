@@ -103,6 +103,8 @@ class SurfaceRenderer(
                 Log.w(TAG, "Não deu para reaproveitar o display, recriando", t)
             }
         }
+        // Não liberar a Surface nova caso o host tenha reenviado o mesmo objeto.
+        if (surface === newSurface) surface = null
         releaseDisplay()
         surface = newSurface
         try {
