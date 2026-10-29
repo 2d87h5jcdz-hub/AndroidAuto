@@ -49,6 +49,8 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric precisa dos recursos (layouts, assets) para os testes de tela.
+        unitTests.isIncludeAndroidResources = true
     }
 }
 
@@ -58,4 +60,9 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // Testes das telas do carro na JVM: TestCarContext/ScreenController da Car App Library
+    // (mesma versão da lib principal) rodando sobre Robolectric.
+    testImplementation("androidx.car.app:app-testing:1.4.0")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
 }
