@@ -87,7 +87,16 @@ No celular, abra as configurações do **Android Auto**
 2. Menu **⋮ → Configurações do desenvolvedor**.
 3. Ative **Fontes desconhecidas** (*Unknown sources*).
 
-Sem isso, o YT Car não aparece na lista de apps do carro.
+> ⚠️ **Isso NÃO basta para o carro de verdade.** Pela
+> [documentação oficial](https://developer.android.com/training/cars/testing), "Fontes
+> desconhecidas" vale para apps de mídia, mensagens e "parked", mas **não para apps feitos
+> com a Car App Library**, como o YT Car. No carro, o Android Auto só mostra apps desse tipo
+> se o Android registrou a **Play Store como instaladora**. O DHU (passo 4) não faz essa
+> checagem. Veja o passo 5 para o carro.
+>
+> Para confirmar que é esse o bloqueio, com o celular ligado no carro rode:
+> `adb logcat -s CAR.VALIDATOR`. Se aparecer
+> `Package DENIED; failed all other checks [dev.androidauto.ytcar]`, é ele.
 
 ### 4. Testar no PC com o DHU (emulador da central)
 
@@ -107,8 +116,35 @@ Logs úteis: `adb logcat -s YtCarRenderer YtCarSearch`
 
 ### 5. No carro
 
-Com as **Fontes desconhecidas** ativas, ligue o celular no USB do carro e abra o YT Car no
-Android Auto. A internet vem do próprio celular.
+Instalar o APK pelo gerenciador de arquivos ou pelo `adb install` faz o app **sumir** do
+Android Auto no carro (veja o aviso no passo 3). Há dois jeitos de contornar:
+
+**A) Oficial: Play Console (taxa única de US$ 25)**
+Envie o app por [Compartilhamento interno de apps](https://play.google.com/console/about/internalappsharing/)
+ou por uma [faixa de teste interno](https://play.google.com/console/about/internal-testing/).
+Os dois instalam pela Play Store **sem passar pela revisão**, e aí o Android Auto aceita o app.
+
+**B) Não oficial, grátis: KingInstaller**
+O [KingInstaller](https://github.com/fcaronte/KingInstaller) instala o APK dizendo ao Android
+que a instaladora foi a Play Store. É o método documentado pelo autor do Fermata Auto
+([análise](https://github.com/AndreyPavlenko/Fermata/issues/846)):
+
+1. Desinstale o YT Car, se ele já estiver instalado.
+2. Instale o APK pelo KingInstaller (modo clássico, sem opções ligadas).
+3. Confira:
+   ```
+   adb shell dumpsys package dev.androidauto.ytcar | findstr "installerPackageName initiatingPackageName"
+   ```
+   O esperado é `installerPackageName=com.android.vending`.
+4. Se não deu certo, instale o **Shizuku**, ligue o *Shizuku Trick* no KingInstaller e repita.
+   Em Xiaomi, POCO e Redmi esse truque costuma falhar sem root.
+5. Force a parada do Android Auto, abra **Personalizar tela de início** e ative o YT Car.
+6. **Toda atualização** precisa ser instalada do mesmo jeito. Senão, o app some de novo.
+
+> Observação: `adb install -i com.android.vending` **não funciona**, porque o Android Auto
+> confere quem *iniciou* a instalação, e nesse caso é o próprio adb.
+
+Depois disso, ligue o celular no USB do carro e abra o YT Car. A internet vem do celular.
 
 ## Limitações conhecidas
 
